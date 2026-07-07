@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小灵语音助手 · 测试台</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: #f0f2f7; min-height: 100vh;
+         display: flex; flex-direction: column; align-items: center; padding: 16px; }
+  .card { width: 100%; max-width: 640px; background: #fff; border-radius: 16px;
+          box-shadow: 0 4px 20px rgba(0,0,0,.08); padding: 20px; display: flex; flex-direction: column; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  .sub { color: #888; font-size: 12px; margin-bottom: 12px; }
+  .bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #bbb; }
+  .dot.idle { background: #4caf50; } .dot.speaking { background: #2196f3; animation: pulse 1s infinite; }
+  .dot.standby { background: #bbb; } .dot.reconnect { background: #ff9800; }
+  @keyframes pulse { 50% { opacity: .4; } }
+  #status { font-size: 13px; color: #555; }
+  #scene { font-size: 12px; background: #eef; color: #446; padding: 2px 10px; border-radius: 10px; }
+  button { border: 0; border-radius: 24px; padding: 12px 28px; font-size: 15px; cursor: pointer; }
+  button.mini { background: #eef2ff; color: #2f4fbd; font-size: 12px; padding: 6px 14px; border-radius: 14px; }
+  #startBtn { background: #2f6fed; color: #fff; width: 100%; margin: 8px 0; }
+  #startBtn.stop { background: #e05a4e; }
+  #chat { flex: 1; min-height: 260px; max-height: 46vh; overflow-y: auto; border: 1px solid #eee;
+          border-radius: 10px; padding: 10px; margin: 8px 0; }
+  .msg { margin: 6px 0; display: flex; }
+  .msg span { max-width: 80%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
+  .me { justify-content: flex-end; } .me span { background: #2f6fed; color: #fff; border-bottom-right-radius: 2px; }
+  .bot span { background: #f1f3f6; border-bottom-left-radius: 2px; }
+  .hint { text-align: center; color: #aaa; font-size: 12px; margin: 4px 0; }
+  .textline { display: flex; gap: 8px; }
+  .textline input { flex: 1; border: 1px solid #ddd; border-radius: 8px; padding: 10px; font-size: 14px; }
+  .textline button { background: #eee; padding: 10px 16px; border-radius: 8px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>小灵语音助手 · 测试台</h1>
+  <div class="sub">点「开始对话」并允许麦克风 → 喊「你好小灵」唤醒 → 直接说话。说「切换到商场导览模式」可切场景。</div>
+  <div class="bar">
+    <div class="dot standby" id="dot"></div><span id="status">未连接</span>
+    <span id="scene" style="display:none"></span>
+    <button id="langBtn" class="mini" style="margin-left:auto">🌐 切换日本語</button>
+  </div>
+  <button id="startBtn">🎙️ 开始对话</button>
+  <div id="chat"></div>
+  <div class="hint">也可以打字测试 ↓</div>
+  <div class="textline">
+    <input id="ti" placeholder="输入文字，回车发送" />
+    <button onclick="sendText()">发送</button>
+  </div>
+</div>
+
+<script>
+const SR = 24000;
+let ws = null, audioCtx = null, micStream = null, procNode = null, running = false;
+let playTime = 0, playingSources = [], playbackTimer = null;
+let curLang = "中文";
+
+const $ = id => document.getElementById(id);
+
+function setStatus(v) {
+  const map = { IDLE: ["idle", "空闲 · 请说话"], SPEAKING: ["speaking", "小灵说话中…"],
+                STANDBY: ["standby", "待机 · 喊「你好小灵」唤醒"], RECONNECTING: ["reconnect", "重连中…"] };
+  const [cls, text] = map[v] || ["standby", v];
+  $("dot").className = "dot " + cls;
+  $("status").textContent = text;
+}
+
+function addMsg(text, mine) {
+  const div = document.createElement("div");
+  div.className = "msg " + (mine ? "me" : "bot");
+  const span = document.createElement("span");
+  span.textContent = text;
+  div.appendChild(span);
+  $("chat").appendChild(div);
+  $("chat").scrollTop = $("chat").scrollHeight;
+}
+
+// ---- 播放：PCM16@24k 按顺序调度；打断时全部停掉 ----
+function playPcm(buf) {
+  const i16 = new Int16Array(buf);
+  const f32 = new Float32Array(i16.length);
+  for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
+  const ab = audioCtx.createBuffer(1, f32.length, SR);
+  ab.getChannelData(0).set(f32);
+  const src = audioCtx.createBufferSource();
+  src.buffer = ab;
+  src.connect(audioCtx.destination);
+  const startAt = Math.max(audioCtx.currentTime + 0.05, playTime);
+  src.start(startAt);
+  playTime = startAt + ab.duration;
+  playingSources.push(src);
+  src.onended = () => {
+    playingSources = playingSources.filter(s => s !== src);
+    // 全部播完 → 通知后端"我说完了"（待机倒计时从这刻起算）
+    if (!playingSources.length && ws && ws.readyState === 1) {
+      clearTimeout(playbackTimer);
+      playbackTimer = setTimeout(() => {
+        if (!playingSources.length) ws.send(JSON.stringify({ type: "playback_done" }));
+      }, 200);
+    }
+  };
+}
+
+function stopPlayback() {
+  playingSources.forEach(s => { try { s.stop(); } catch (e) {} });
+  playingSources = [];
+  playTime = 0;
+}
+
+// ---- 采集：ScriptProcessor 下采样到 24k PCM16，二进制发送 ----
+function startMic() {
+  const srcRate = audioCtx.sampleRate;
+  const source = audioCtx.createMediaStreamSource(micStream);
+  procNode = audioCtx.createScriptProcessor(4096, 1, 1);
+  let acc = [];
+  procNode.onaudioprocess = e => {
+    if (!ws || ws.readyState !== 1) return;
+    const input = e.inputBuffer.getChannelData(0);
+    const ratio = srcRate / SR;
+    const outLen = Math.floor(input.length / ratio);
+    const out = new Int16Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      const v = input[Math.floor(i * ratio)];
+      out[i] = Math.max(-1, Math.min(1, v)) * 32767;
+    }
+    acc.push(out);
+    const total = acc.reduce((s, a) => s + a.length, 0);
+    if (total >= SR / 10) {                    // 攒 ~100ms 发一次
+      const merged = new Int16Array(total);
+      let off = 0;
+      acc.forEach(a => { merged.set(a, off); off += a.length; });
+      acc = [];
+      ws.send(merged.buffer);
+    }
+  };
+  source.connect(procNode);
+  procNode.connect(audioCtx.destination);   // Chrome 需要接到目的地才会触发回调（无回声：不输出源音）
+}
+
+async function start() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
+  } catch (e) { alert("需要麦克风权限才能对话：" + e.message); return; }
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  await audioCtx.resume();
+
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => { setStatus("STANDBY"); startMic(); };
+  ws.onclose = () => { setStatus("未连接"); stop(); };
+  ws.onmessage = ev => {
+    if (ev.data instanceof ArrayBuffer) { playPcm(ev.data); return; }
+    const m = JSON.parse(ev.data);
+    if (m.type === "status") setStatus(m.value);
+    else if (m.type === "user_text") addMsg(m.text, true);
+    else if (m.type === "bot_text") addMsg(m.text, false);
+    else if (m.type === "clear") stopPlayback();
+    else if (m.type === "scene") { $("scene").style.display = ""; $("scene").textContent = "场景：" + m.value; }
+    else if (m.type === "language") {
+      curLang = m.value;
+      $("langBtn").textContent = curLang === "中文" ? "🌐 切换日本語" : "🌐 中文に切替";
+      addMsg(curLang === "中文" ? "（已切换为中文模式）" : "（日本語モードに切り替えました）", false);
+    }
+    else if (m.type === "log") console.log("[server]", m.text);
+  };
+  running = true;
+  $("startBtn").textContent = "⏹ 结束对话";
+  $("startBtn").className = "stop";
+}
+
+function stop() {
+  running = false;
+  try { procNode && procNode.disconnect(); } catch (e) {}
+  try { micStream && micStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  try { ws && ws.close(); } catch (e) {}
+  stopPlayback();
+  try { audioCtx && audioCtx.close(); } catch (e) {}
+  ws = null; audioCtx = null; micStream = null; procNode = null;
+  $("startBtn").textContent = "🎙️ 开始对话";
+  $("startBtn").className = "";
+  setStatus("未连接");
+}
+
+$("startBtn").onclick = () => running ? stop() : start();
+
+$("langBtn").onclick = () => {
+  if (!ws || ws.readyState !== 1) { alert("请先点「开始对话」连接后再切换语言"); return; }
+  const target = curLang === "中文" ? "日语" : "中文";
+  ws.send(JSON.stringify({ type: "set_language", value: target }));
+};
+
+function sendText() {
+  const v = $("ti").value.trim();
+  if (!v || !ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ type: "text_input", text: v }));
+  $("ti").value = "";
+}
+$("ti").addEventListener("keydown", e => { if (e.key === "Enter") sendText(); });
+</script>
+</body>
+</html>

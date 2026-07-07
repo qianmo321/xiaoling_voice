@@ -1,0 +1,27 @@
+{
+  "_说明": "复制这个文件为 config.json 并填好 key（config.json 不入 git，密钥安全）。",
+  "openai": {
+    "api_key": "在这里填你的OpenAI_key（sk-开头）",
+    "model": "gpt-realtime",
+    "voice": "marin",
+    "transcribe_model": "gpt-4o-mini-transcribe"
+  },
+  "search": {
+    "enable": true,
+    "tavily_api_key": "在这里填你的Tavily_key（tvly-开头）"
+  },
+  "network": {
+    "proxy": "127.0.0.1:7890"
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000
+  },
+  "language": "中文",
+  "wake": {
+    "enable": true,
+    "window_s": 30,
+    "standby_announce": true
+  },
+  "mic_gate_rms": 0
+}

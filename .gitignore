@@ -1,0 +1,14 @@
+# 密钥配置——绝不入库（用 config.example.json 当模板）
+config.json
+
+# HTTPS 证书
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+
+# 运行产物
+*.wav
+!web_voice/test_question.wav
+*.log
