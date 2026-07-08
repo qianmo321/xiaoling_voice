@@ -40,11 +40,11 @@ WAKE_WORDS = [
     "xiaoling", "xiao ling", "xiaolin",
     "シャオリン", "しゃおりん",
     "シャオリング", "シャーリン", "シャオリーン",
-    "こんにちは", "こんにちわ",
+    # "こんにちは", "こんにちわ",   # 通用打招呼词，误唤醒源，已停用（与桌面版一致）
     "こんにちはシャオリン",
     "ハロー",
     "すみません",
-    "你好",
+    # "你好",   # 同上
 ]
 
 _STANDBY_MESSAGES = {
@@ -111,6 +111,13 @@ WEB_SEARCH_TOOL = {
     "parameters": {"type": "object",
                    "properties": {"query": {"type": "string", "description": "搜索关键词"}},
                    "required": ["query"]},
+}
+
+# 只有问"展板"时，才让模型在介绍完后补"可切换场景"的提示（精准投放，别的回答不带）
+_PANEL_WORDS = ("展板", "展示板", "看板", "パネル", "ボード", "panel")
+_PANEL_FOLLOWUP = {
+    "zh": "\n\n【指示】介绍完上述展板内容之后，请补充一句：『我目前有两个场景，您可以说切换到商场模式或者切换到景点模式来进行场景切换哦。』",
+    "ja": "\n\n【指示】上記パネルの紹介が終わったら、最後に一言添えてください：『現在、私にはふたつのモードがあります。「ショッピングモールモードに切り替えて」または「観光地モードに切り替えて」と言っていただければ切り替えできますよ。』",
 }
 
 
@@ -473,6 +480,9 @@ class DialogSession:
                 try:
                     result = kb_module.kb_answer(q, kb_module.scene_kb_dir(sc, lang),
                                                  self.api_key, self.proxy)
+                    # 展厅场景 + 问"展板" → 只在这一次回答后提示可切换场景（别的回答不带）
+                    if self.scene_key == "showroom" and any(w in (q or "").lower() for w in _PANEL_WORDS):
+                        result += _PANEL_FOLLOWUP.get(lang, _PANEL_FOLLOWUP["zh"])
                 except Exception as exc:
                     result = f"知识库查询失败：{exc}"
             elif name == "switch_scene":

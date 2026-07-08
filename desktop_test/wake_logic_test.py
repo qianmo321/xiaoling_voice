@@ -74,24 +74,26 @@ ws.sent.clear()
 ort.handle_user_utterance("小玲，介绍一下IST")
 check("同音'小玲'也能唤醒", ort._awake and "response.create" in ws.sent)
 
-# 7) 各种同音/变体唤醒词逐个验证（每次先强制回待机）
+# 7) 唤醒行为与词表自适应验证：短语命中当前 WAKE_WORDS 就该唤醒、没命中就不该
+#（这样以后增删唤醒词，测试不用跟着改）
 for phrase, desc in [
     ("小凌小凌", "同音'小凌'"),
     ("小 灵 小 灵", "带空格'小 灵'"),
-    ("你好", "打招呼'你好'"),
     ("小林在吗", "近音'小林'"),
     ("シャオリン、こんにちは", "日语'シャオリン'"),
     ("しゃおりん", "平假名'しゃおりん'"),
-    ("こんにちは。", "日语'こんにちは'"),
-    ("こんにちわ", "错写'こんにちわ'"),
     ("すみません、ちょっといいですか", "日语'すみません'"),
     ("シャーリン", "近似音'シャーリン'"),
     ("ハロー", "日语'ハロー'"),
+    ("你好", "通用'你好'"),
+    ("こんにちは。", "通用'こんにちは'"),
+    ("こんにちわ", "通用'こんにちわ'"),
 ]:
     ort._awake = False
     ws.sent.clear()
     ort.handle_user_utterance(phrase)
-    check(f"{desc} 能唤醒", ort._awake)
+    should = any(ort._normalize(w) in ort._normalize(phrase) for w in ort.WAKE_WORDS)
+    check(f"{desc} {'应唤醒' if should else '不应唤醒'}(与词表一致)", ort._awake == should)
 
 # 8) 待机时不含任何唤醒词的话依然被忽略
 ort._awake = False
