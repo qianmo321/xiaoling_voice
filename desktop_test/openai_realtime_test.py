@@ -128,6 +128,8 @@ WAKE_WORDS = [
 ]
 WAKE_WINDOW_S = 30              # 唤醒后多少秒无对话 → 回待机
 MIN_CHARS = 3                   # 识别文字少于这个字数直接忽略（防喘气/杂音被误识别成字）
+# 打断门槛：True=它说话时只有喊唤醒词才能打断（其它话当没听见）；False=任何实质内容都能打断
+INTERRUPT_REQUIRES_WAKE = True
 
 # 进入待机时是否语音播报提示（文案按 LANGUAGE 自动选）
 STANDBY_ANNOUNCE = True
@@ -457,6 +459,15 @@ def handle_user_utterance(transcript, item_id=""):
         print("  [忽略语气词] 不打断、不回应")
         _discard_item(item_id)
         return
+
+    # ③′ 打断门槛：它正在说话（生成中/还在播）时，只有含唤醒词的话才允许打断；
+    #     其它话当没听见（并从历史删除，防止说完后被"补答"）。说完后的空闲期不受此限制。
+    if INTERRUPT_REQUIRES_WAKE and (_is_responding or _playing):
+        norm = _normalize(transcript)
+        if not any(_normalize(w) in norm for w in WAKE_WORDS):
+            print(f"  [说话中忽略] 未喊『{WAKE_WORDS[0]}』，不打断，继续说完")
+            _discard_item(item_id)
+            return
 
     # ④ 实质内容：无条件停掉旧音频（模型生成常早已结束、音频还在慢慢播，不能只在"生成中"才清），再回应
     _last_active_ts = now

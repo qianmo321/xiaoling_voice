@@ -21,7 +21,8 @@
   "wake": {
     "enable": true,
     "window_s": 30,
-    "standby_announce": true
+    "standby_announce": true,
+    "interrupt_requires_wake": true
   },
   "mic_gate_rms": 0
 }

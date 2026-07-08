@@ -133,6 +133,8 @@ class DialogSession:
         self.wake_enable = bool(wake.get("enable", True))
         self.wake_window_s = int(wake.get("window_s", 30))
         self.standby_announce = bool(wake.get("standby_announce", True))
+        # 打断门槛：True=它说话时只有喊唤醒词才能打断（其它话当没听见）；False=任何实质内容都能打断
+        self.interrupt_requires_wake = bool(wake.get("interrupt_requires_wake", True))
         self.mic_gate_rms = int(cfg.get("mic_gate_rms", 0))
 
         self.scenes_cfg = kb_module.load_scenes()
@@ -384,7 +386,8 @@ class DialogSession:
         self._ready.set()
         self._suppress_audio = False
         sc = self._scene()
-        self._log(f"已连接 OpenAI | 场景={sc.get('name','默认')} 语言={self.language} 唤醒={self.wake_enable}")
+        self._log(f"已连接 OpenAI | 场景={sc.get('name','默认')} 语言={self.language} "
+                  f"唤醒={self.wake_enable} 打断需唤醒词={self.interrupt_requires_wake}")
         self._status("STANDBY" if (self.wake_enable and not self._awake) else "IDLE")
 
     def _discard_item(self, item_id):
@@ -414,6 +417,13 @@ class DialogSession:
             self._log("[忽略语气词]")
             self._discard_item(item_id)
             return
+        # 打断门槛：它正在说话（生成中/还在播）时，只有含唤醒词的话才允许打断；
+        # 其它话当没听见（并从历史删除，防止说完后被"补答"）。说完后的空闲期不受此限制。
+        if self.interrupt_requires_wake and (self._is_responding or self._playing):
+            if not any(_normalize(w) in norm_t for w in WAKE_WORDS):
+                self._log("[说话中忽略] 未喊唤醒词，不打断")
+                self._discard_item(item_id)
+                return
         self._last_active_ts = now
         self._interrupt_playback()
         if self._is_responding:

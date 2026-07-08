@@ -107,6 +107,27 @@ check("口头指令进入待机", not ort._awake and "待机" in msg)
 ort.handle_user_utterance("那明天见啦")
 check("口头待机后，无唤醒词的话被忽略", ws.sent == [])
 
+# 9.5) 打断门槛：它说话中，普通话不打断、唤醒词才打断
+ort._awake = True
+ort._last_active_ts = __import__("time").time()
+ort._is_responding = True          # 模拟"正在生成/说话"
+ws.sent.clear()
+ort.handle_user_utterance("换个话题吧", "item_talk1")
+check("说话中·普通话被无视(不打断)", "response.create" not in ws.sent and "response.cancel" not in ws.sent)
+check("说话中·被无视的话已从历史删除", "conversation.item.delete" in ws.sent)
+ws.sent.clear()
+ort.handle_user_utterance("你好小灵，换个话题", "item_talk2")
+check("说话中·喊唤醒词能打断", "response.cancel" in ws.sent and "response.create" in ws.sent)
+ort._is_responding = False
+ort._playing = True                # 模拟"生成完但还在播"
+ws.sent.clear()
+ort.handle_user_utterance("等一下等一下", "item_talk3")
+check("播放中·普通话也被无视", "response.create" not in ws.sent)
+ort._playing = False
+ws.sent.clear()
+ort.handle_user_utterance("再介绍一下大连百易")
+check("说完后·空闲期不需要唤醒词，正常回应", "response.create" in ws.sent)
+
 # 10) 待机播报：发送了带外（conversation:none）的回应请求
 ws.sent.clear(); ws.raw.clear()
 ort._announce_standby()
