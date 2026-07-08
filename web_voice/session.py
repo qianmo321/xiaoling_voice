@@ -64,6 +64,9 @@ _HALLUCINATION_PHRASES = {
     "ご視聴ありがとうございました", "ご視聴ありがとうございます",
     "thank you for watching", "thanks for watching", "thank you",
     "bye-bye", "you", "mm-hmm",
+    "您好，请问有什么可以帮助您的吗", "您好，请问有什么可以帮到您的吗",
+    "请问有什么可以帮助您的吗", "请问有什么可以帮到您的吗", "你好，请问有什么可以帮助你的吗",
+    "有什么可以帮助您的吗", "有什么可以帮到您的吗",
 }
 SAMPLE_RATE = 24000
 # ======================================================================
@@ -203,7 +206,7 @@ class DialogSession:
             "conversation": "none",
             "input": [],   # 显式清空上下文
             "output_modalities": ["audio"],
-            "instructions": f"复述以下内容，一字不差，不要回应任何别的话题：{confirm}"}})
+            "instructions": f"直接说出下面这句话，一字不差，不要加任何开场白、确认语或额外内容：{confirm}"}})
 
     def feed_text(self, text):
         """网页文字输入（调试用）。"""
@@ -376,7 +379,7 @@ class DialogSession:
                         "conversation": "none",
                         "input": [],   # 显式清空上下文，否则播报会被对话历史带偏
                         "output_modalities": ["audio"],
-                        "instructions": f"复述以下内容，一字不差，不要回应任何别的话题：{msg}"}})
+                        "instructions": f"直接说出下面这句话，一字不差，不要加任何开场白、确认语或额外内容：{msg}"}})
 
     # ---------- OpenAI 事件 ----------
     def _on_open(self, ws):

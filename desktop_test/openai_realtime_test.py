@@ -163,6 +163,10 @@ _HALLUCINATION_PHRASES = {
     "ご視聴ありがとうございました", "ご視聴ありがとうございます",
     "thank you for watching", "thanks for watching", "thank you",
     "Bye-bye","you","Mm-hmm",
+    # 转写器把杂音脑补成的"客服欢迎语"（受导览领域引导影响的高频幻觉）
+    "您好，请问有什么可以帮助您的吗", "您好，请问有什么可以帮到您的吗",
+    "请问有什么可以帮助您的吗", "请问有什么可以帮到您的吗", "你好，请问有什么可以帮助你的吗",
+    "有什么可以帮助您的吗", "有什么可以帮到您的吗",
 }
 
 
@@ -493,7 +497,7 @@ def _announce_standby():
                 "conversation": "none",
                 "input": [],   # 关键：显式清空上下文。只有 conversation:none 不够——不传 input 模型仍会读对话历史、被带偏
                 "output_modalities": ["audio"],
-                "instructions": f"复述以下内容，一字不差，不要回应任何别的话题：{msg}"}}))
+                "instructions": f"直接说出下面这句话，一字不差，不要加任何开场白、确认语或额外内容：{msg}"}}))
     except Exception as exc:
         print("[待机播报失败]", exc)
 
