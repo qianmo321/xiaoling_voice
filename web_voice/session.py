@@ -137,6 +137,7 @@ class DialogSession:
         self.transcribe_model = oa.get("transcribe_model", "gpt-4o-mini-transcribe")
         self.proxy = cfg.get("network", {}).get("proxy", "")
         self.language = cfg.get("language", "中文")
+        self.location = cfg.get("location", "大连")   # 默认所在地：查天气等本地信息时的缺省地点
         self.search_on = bool(cfg.get("search", {}).get("enable", True))
         self.tavily_key = cfg.get("search", {}).get("tavily_api_key", "")
         wake = cfg.get("wake", {})
@@ -259,7 +260,9 @@ class DialogSession:
 
     def _instructions(self):
         lang_rule = (f"你的主语言是{self.language}，默认用{self.language}交流；"
-                     f"用户用其他语言提问时跟随用户的语言。")
+                     f"用户用其他语言提问时跟随用户的语言。"
+                     f"你所在的城市是{self.location}：用户询问天气、新闻等本地信息但没有指明地点时，"
+                     f"默认按{self.location}查询（联网搜索的关键词里带上{self.location}）。")
         sc = self._scene()
         if not sc:
             return f"你是一个友好的{self.language}语音助手，名字叫小灵。" + lang_rule

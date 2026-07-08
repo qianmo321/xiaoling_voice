@@ -24,5 +24,6 @@
     "standby_announce": true,
     "interrupt_requires_wake": true
   },
-  "mic_gate_rms": 0
+  "mic_gate_rms": 0,
+  "location": "大连"
 }
