@@ -381,7 +381,7 @@ class DialogSession:
                     and not self._is_responding and not self._playing
                     and time.time() - self._last_active_ts > self.wake_window_s):
                 self._awake = False
-                self._log(f"超过{self.wake_window_s}秒无对话，进入待机")
+                self._log(f"[待机] 超过 {self.wake_window_s} 秒无对话，已进入待机（喊『你好小灵』唤醒）")
                 self._status("STANDBY")
                 if self.standby_announce:
                     msg = _STANDBY_MESSAGES.get(self.language, _STANDBY_MESSAGES["中文"])
@@ -440,6 +440,7 @@ class DialogSession:
                 self._discard_item(item_id)
                 return
         self._last_active_ts = now
+        self._log("[处理] 停止当前播放，回应这句话")
         self._interrupt_playback()
         if self._is_responding:
             self._send({"type": "response.cancel"})
@@ -473,19 +474,21 @@ class DialogSession:
                 args = {}
             if name == "web_search":
                 q = args.get("query", "")
-                self._log(f"联网搜索: {q}")
+                self._log(f"[联网搜索] {q}")
                 result = self._tavily(q)
+                self._log(f"[搜索完成] {result[:60]}...")
             elif name == "search_knowledge_base":
                 q = args.get("query", "")
                 lang = args.get("language", "") or kb_module.detect_language(q)
                 sc = self._scene()
-                self._log(f"查知识库: 场景={sc.get('name')} 语言={lang} 问题={q}")
+                self._log(f"[查知识库] 场景={sc.get('name')} 语言={lang} 问题={q}")
                 try:
                     result = kb_module.kb_answer(q, kb_module.scene_kb_dir(sc, lang),
                                                  self.api_key, self.proxy)
                     # 展厅场景 + 问"展板" → 只在这一次回答后提示可切换场景（别的回答不带）
                     if self.scene_key == "showroom" and any(w in (q or "").lower() for w in _PANEL_WORDS):
                         result += _PANEL_FOLLOWUP.get(lang, _PANEL_FOLLOWUP["zh"])
+                    self._log(f"[知识库回答] {result[:60]}...")
                 except Exception as exc:
                     result = f"知识库查询失败：{exc}"
             elif name == "switch_scene":
@@ -531,13 +534,13 @@ class DialogSession:
             self._suppress_audio = False
         elif t == "conversation.item.input_audio_transcription.completed":
             transcript = e.get("transcript", "").strip()
-            self._log(f"你: {transcript}")
+            print(f"[session] 你: {transcript}", flush=True)   # 页面已有气泡，不再发log
             self.send_json({"type": "user_text", "text": transcript})
             self._handle_utterance(transcript, e.get("item_id", ""))
         elif t in ("response.output_audio_transcript.done", "response.audio_transcript.done"):
             text = e.get("transcript", "").strip()
             if text:
-                self._log(f"小灵: {text}")
+                print(f"[session] 小灵: {text}", flush=True)   # 页面已有气泡，不再发log
                 self.send_json({"type": "bot_text", "text": text})
         elif t == "response.done":
             self._is_responding = False

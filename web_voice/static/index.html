@@ -30,6 +30,10 @@
   .me { justify-content: flex-end; } .me span { background: #2f6fed; color: #fff; border-bottom-right-radius: 2px; }
   .bot span { background: #f1f3f6; border-bottom-left-radius: 2px; }
   .hint { text-align: center; color: #aaa; font-size: 12px; margin: 4px 0; }
+  .msg.sys { justify-content: flex-start; }
+  .msg.sys span { background: none; color: #98a2b3; font-size: 12px; padding: 1px 6px;
+                  font-family: Consolas, monospace; max-width: 100%; }
+  body.nolog .msg.sys { display: none; }
   .textline { display: flex; gap: 8px; }
   .textline input { flex: 1; border: 1px solid #ddd; border-radius: 8px; padding: 10px; font-size: 14px; }
   .textline button { background: #eee; padding: 10px 16px; border-radius: 8px; }
@@ -42,7 +46,8 @@
   <div class="bar">
     <div class="dot standby" id="dot"></div><span id="status">未连接</span>
     <span id="scene" style="display:none"></span>
-    <button id="langBtn" class="mini" style="margin-left:auto">🌐 切换日本語</button>
+    <button id="logBtn" class="mini" style="margin-left:auto">📜 日志:开</button>
+    <button id="langBtn" class="mini">🌐 切换日本語</button>
   </div>
   <button id="startBtn">🎙️ 开始对话</button>
   <div id="chat"></div>
@@ -67,6 +72,16 @@ function setStatus(v) {
   const [cls, text] = map[v] || ["standby", v];
   $("dot").className = "dot " + cls;
   $("status").textContent = text;
+}
+
+function addLog(text) {
+  const div = document.createElement("div");
+  div.className = "msg sys";
+  const span = document.createElement("span");
+  span.textContent = text;
+  div.appendChild(span);
+  $("chat").appendChild(div);
+  $("chat").scrollTop = $("chat").scrollHeight;
 }
 
 function addMsg(text, mine) {
@@ -167,7 +182,7 @@ async function start() {
       $("langBtn").textContent = curLang === "中文" ? "🌐 切换日本語" : "🌐 中文に切替";
       addMsg(curLang === "中文" ? "（已切换为中文模式）" : "（日本語モードに切り替えました）", false);
     }
-    else if (m.type === "log") console.log("[server]", m.text);
+    else if (m.type === "log") { addLog(m.text); console.log("[server]", m.text); }
   };
   running = true;
   $("startBtn").textContent = "⏹ 结束对话";
@@ -188,6 +203,13 @@ function stop() {
 }
 
 $("startBtn").onclick = () => running ? stop() : start();
+
+let showLog = true;
+$("logBtn").onclick = () => {
+  showLog = !showLog;
+  document.body.classList.toggle("nolog", !showLog);
+  $("logBtn").textContent = "📜 日志:" + (showLog ? "开" : "关");
+};
 
 $("langBtn").onclick = () => {
   if (!ws || ws.readyState !== 1) { alert("请先点「开始对话」连接后再切换语言"); return; }
