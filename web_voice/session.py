@@ -201,6 +201,7 @@ class DialogSession:
         # 带外响应念确认语（不读/不写对话历史）
         self._send({"type": "response.create", "response": {
             "conversation": "none",
+            "input": [],   # 显式清空上下文
             "output_modalities": ["audio"],
             "instructions": f"复述以下内容，一字不差，不要回应任何别的话题：{confirm}"}})
 
@@ -373,6 +374,7 @@ class DialogSession:
                     msg = _STANDBY_MESSAGES.get(self.language, _STANDBY_MESSAGES["中文"])
                     self._send({"type": "response.create", "response": {
                         "conversation": "none",
+                        "input": [],   # 显式清空上下文，否则播报会被对话历史带偏
                         "output_modalities": ["audio"],
                         "instructions": f"复述以下内容，一字不差，不要回应任何别的话题：{msg}"}})
 

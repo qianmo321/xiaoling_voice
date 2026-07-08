@@ -491,6 +491,7 @@ def _announce_standby():
         with _send_lock:
             _ws_app.send(json.dumps({"type": "response.create", "response": {
                 "conversation": "none",
+                "input": [],   # 关键：显式清空上下文。只有 conversation:none 不够——不传 input 模型仍会读对话历史、被带偏
                 "output_modalities": ["audio"],
                 "instructions": f"复述以下内容，一字不差，不要回应任何别的话题：{msg}"}}))
     except Exception as exc:
