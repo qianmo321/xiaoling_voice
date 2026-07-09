@@ -65,7 +65,7 @@ VOICE = "marin"
 LANGUAGE = "中文"
 
 # 语音转写模型：gpt-4o-mini-transcribe 比 whisper-1 幻觉少、短音频（喊唤醒词）识别更稳
-TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
+TRANSCRIBE_MODEL = _ROOT_CFG.get("openai", {}).get("transcribe_model", "gpt-4o-transcribe")
 # 转写引导提示（按 LANGUAGE 自动选）。
 # 注意措辞要"弱引导"：只说明语言/领域、名字用"可能出现"带过。
 # 若写成"名字叫小灵(你好小灵)"这种强引导，咳嗽等模糊人声会被转写器直接"脑补"成唤醒词→误唤醒。
@@ -181,6 +181,23 @@ def _normalize(s):
 # 幻觉词表预先归一化（词表里写 "Bye-bye"、"bye bye" 都能匹配上）
 _HALLUCINATION_NORM = {_normalize(p) for p in _HALLUCINATION_PHRASES}
 
+# 幻觉"句式"匹配：整句词表拦不住变体（帮助您的/需要帮助的/帮到你…），按句式一网打尽。
+# 注意模式作用在"归一化后"的文本上（无空格无标点）。设计得保守，避免误杀用户真话。
+_HALLUCINATION_PATTERNS = [
+    r"有什么(可以|需要|能|想)?(帮助|帮到|帮忙|为您|效劳)",   # 有什么可以帮助您/有什么需要帮忙…
+    r"(帮助|帮到)(您|你)的?吗$",                             # …帮助您的吗
+    r"为您服务",
+    r"欢迎光临",
+    # 日语客服套话
+    r"いらっしゃいませ",
+    r"何か.{0,8}(お手伝い|ご用)",                            # 何かお手伝いできることは…
+    r"ご用件",
+    r"お手伝い(できる|しましょう|いたします)",
+    r"ご案内(いたします|します)$",
+]
+_HALLUCINATION_RE = [re.compile(p) for p in _HALLUCINATION_PATTERNS]
+
+
 
 def is_filler(text):
     """识别出来的文字是不是'该忽略的声音'：语气词/太短/Whisper幻觉。"""
@@ -195,6 +212,9 @@ def is_filler(text):
         return True
     if t in _HALLUCINATION_NORM:              # 幻觉整句（已统一归一化）
         return True
+    for _pat in _HALLUCINATION_RE:            # 幻觉句式（变体也拦）
+        if _pat.search(t):
+            return True
     return False
 
 

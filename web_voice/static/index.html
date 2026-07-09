@@ -135,12 +135,24 @@ function startMic() {
   procNode.onaudioprocess = e => {
     if (!ws || ws.readyState !== 1) return;
     const input = e.inputBuffer.getChannelData(0);
-    const ratio = srcRate / SR;
-    const outLen = Math.floor(input.length / ratio);
-    const out = new Int16Array(outLen);
-    for (let i = 0; i < outLen; i++) {
-      const v = input[Math.floor(i * ratio)];
-      out[i] = Math.max(-1, Math.min(1, v)) * 32767;
+    let out;
+    if (srcRate === SR) {
+      // 上下文已是 24k：直接转 Int16，零损失
+      out = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++)
+        out[i] = Math.max(-1, Math.min(1, input[i])) * 32767;
+    } else {
+      // 均值降采样（每个输出点取窗口平均，抗混叠明显好于隔点抽取）
+      const ratio = srcRate / SR;
+      const outLen = Math.floor(input.length / ratio);
+      out = new Int16Array(outLen);
+      for (let i = 0; i < outLen; i++) {
+        const start = Math.floor(i * ratio), end = Math.min(Math.floor((i + 1) * ratio), input.length);
+        let sum = 0;
+        for (let j = start; j < end; j++) sum += input[j];
+        const v = end > start ? sum / (end - start) : 0;
+        out[i] = Math.max(-1, Math.min(1, v)) * 32767;
+      }
     }
     acc.push(out);
     const total = acc.reduce((s, a) => s + a.length, 0);
@@ -161,7 +173,12 @@ async function start() {
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
   } catch (e) { alert("需要麦克风权限才能对话：" + e.message); return; }
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  try {
+    // 直接请求 24k 上下文：浏览器内部做高质量重采样，避免手动降采样引入混叠噪声（伤识别）
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SR });
+  } catch (e) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
   await audioCtx.resume();
 
   const proto = location.protocol === "https:" ? "wss" : "ws";

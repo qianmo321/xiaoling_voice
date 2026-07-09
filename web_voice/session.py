@@ -78,6 +78,23 @@ def _normalize(s):
 
 _HALLUCINATION_NORM = {_normalize(p) for p in _HALLUCINATION_PHRASES}
 
+# 幻觉"句式"匹配：整句词表拦不住变体（帮助您的/需要帮助的/帮到你…），按句式一网打尽。
+# 注意模式作用在"归一化后"的文本上（无空格无标点）。设计得保守，避免误杀用户真话。
+_HALLUCINATION_PATTERNS = [
+    r"有什么(可以|需要|能|想)?(帮助|帮到|帮忙|为您|效劳)",   # 有什么可以帮助您/有什么需要帮忙…
+    r"(帮助|帮到)(您|你)的?吗$",                             # …帮助您的吗
+    r"为您服务",
+    r"欢迎光临",
+    # 日语客服套话
+    r"いらっしゃいませ",
+    r"何か.{0,8}(お手伝い|ご用)",                            # 何かお手伝いできることは…
+    r"ご用件",
+    r"お手伝い(できる|しましょう|いたします)",
+    r"ご案内(いたします|します)$",
+]
+_HALLUCINATION_RE = [re.compile(p) for p in _HALLUCINATION_PATTERNS]
+
+
 
 def is_filler(text):
     t = _normalize(text)
@@ -91,6 +108,9 @@ def is_filler(text):
         return True
     if t in _HALLUCINATION_NORM:
         return True
+    for _pat in _HALLUCINATION_RE:            # 幻觉句式（变体也拦）
+        if _pat.search(t):
+            return True
     return False
 
 
@@ -134,7 +154,7 @@ class DialogSession:
         self.api_key = oa["api_key"]
         self.model = oa.get("model", "gpt-realtime")
         self.voice = oa.get("voice", "marin")
-        self.transcribe_model = oa.get("transcribe_model", "gpt-4o-mini-transcribe")
+        self.transcribe_model = oa.get("transcribe_model", "gpt-4o-transcribe")
         self.proxy = cfg.get("network", {}).get("proxy", "")
         self.language = cfg.get("language", "中文")
         self.location = cfg.get("location", "大连")   # 默认所在地：查天气等本地信息时的缺省地点
