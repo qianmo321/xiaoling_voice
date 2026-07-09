@@ -139,9 +139,9 @@ def on_message(ws, message):
                 print(f"<<< 小灵: {state['answers'][-1]}")
             state["step"] += 1
             if state["step"] == 1:
-                say(ws, "你们商场停车场怎么收费？")
+                say(ws, "银座有哪些有名的百货公司？")
             elif state["step"] == 2:
-                say(ws, "営業時間は何時までですか？")   # 日语提问 → 应走日文知识库
+                say(ws, "銀座四丁目には何がありますか？")   # 日语提问 → 应走日文知识库
             else:
                 done.set()
     elif t == "error":
