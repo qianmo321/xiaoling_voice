@@ -408,7 +408,9 @@ class DialogSession:
                     url, header=headers,
                     on_open=self._on_open, on_message=self._on_message,
                     on_error=lambda ws, e: self._log(f"连接错误: {e}"))
-                self._ws.run_forever(**self._proxy_kwargs())
+                # ping_interval：每15秒主动发心跳——保持代理链路活跃（减少空闲被掐），
+                # 断线后最多10秒内发现，走下面的自动重连
+                self._ws.run_forever(ping_interval=15, ping_timeout=10, **self._proxy_kwargs())
             except Exception as exc:
                 self._log(f"连接异常: {exc}")
             if not self._should_run:

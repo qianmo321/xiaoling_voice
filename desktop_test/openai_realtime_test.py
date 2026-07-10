@@ -708,6 +708,8 @@ def build_session_update():
 
 def on_open(ws):
     """连接建立后：发送会话配置（场景人设、音色、音频格式、VAD 断句）"""
+    global _backoff
+    _backoff = 2   # 连上了：重连等待时间归位
     sc = current_scene()
     print(f"[连接成功] 场景={sc.get('name', '默认')} | VAD={VAD_MODE}" +
           (f"/eagerness={VAD_EAGERNESS}" if VAD_MODE == "semantic" else ""))
@@ -770,6 +772,12 @@ def on_error(ws, error):
 
 
 def on_close(ws, code, msg):
+    """连接断开（如梯子空闲被掐导致 1011 keepalive ping timeout）：
+    先停麦克风上送、复位回复状态，交给 ws_manager 自动重连。"""
+    global _is_responding, _suppress_audio
+    _connected.clear()
+    _is_responding = False
+    _suppress_audio = False
     print("[连接关闭]", code, msg)
 
 
@@ -819,28 +827,49 @@ def mic_callback(indata, frames, time_info, status):
         pass
 
 
+_should_run = True   # Ctrl+C 退出时置 False，让重连线程收工
+_backoff = 2         # 重连等待秒数：失败一次翻倍（最多30秒），连上后由 on_open 复位
+
+
+def ws_manager():
+    """连接管理线程：断线自动重连。心跳超时（1011）、网络抖动都能自己恢复，
+    唤醒/场景等状态都在本地全局变量里，重连后保持不变。"""
+    global _ws_app, _backoff
+    pk = proxy_kwargs()
+    if pk:
+        print(f"[代理] 走 {pk['http_proxy_host']}:{pk['http_proxy_port']}")
+    while _should_run:
+        _ws_app = websocket.WebSocketApp(
+            URL,
+            header=HEADERS,
+            on_open=on_open,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close,
+        )
+        try:
+            # ping_interval：客户端每15秒主动发心跳——既让梯子的空闲连接保持活跃（减少被掐），
+            # 也能在断线后最多10秒内发现，触发下面的自动重连
+            _ws_app.run_forever(ping_interval=15, ping_timeout=10, **pk)
+        except Exception as exc:
+            print("[连接异常]", exc)
+        _connected.clear()
+        if not _should_run:
+            break
+        print(f"[重连中] {_backoff} 秒后自动重连…（唤醒/场景状态保持不变）")
+        time.sleep(_backoff)
+        _backoff = min(_backoff * 2, 30)
+
+
 def main():
-    global _ws_app, _player_stream
+    global _player_stream, _should_run
 
     if "粘贴" in API_KEY or not API_KEY.startswith("sk-"):
         print("！请先在脚本顶部把 API_KEY 填成你的 OpenAI key（以 sk- 开头），或设置环境变量 OPENAI_API_KEY")
         return
 
-    _ws_app = websocket.WebSocketApp(
-        URL,
-        header=HEADERS,
-        on_open=on_open,
-        on_message=on_message,
-        on_error=on_error,
-        on_close=on_close,
-    )
-
-    # WebSocket 在后台线程跑（显式走代理）
-    pk = proxy_kwargs()
-    if pk:
-        print(f"[代理] 走 {pk['http_proxy_host']}:{pk['http_proxy_port']}")
-    ws_thread = threading.Thread(target=lambda: _ws_app.run_forever(**pk), daemon=True)
-    ws_thread.start()
+    # WebSocket 交给管理线程跑：断线自动重连（显式走代理）
+    threading.Thread(target=ws_manager, daemon=True).start()
 
     # 等连接就绪（首次握手 + DNS 偶尔较慢，给足 30 秒）
     if not _connected.wait(timeout=30):
@@ -866,13 +895,17 @@ def main():
 
     with mic:
         try:
-            while ws_thread.is_alive():
+            while True:   # 断线由 ws_manager 自动重连，这里只等 Ctrl+C
                 threading.Event().wait(0.5)
         except KeyboardInterrupt:
             print("\n[退出]")
         finally:
+            _should_run = False
             _audio_q.put(None)
-            _ws_app.close()
+            try:
+                _ws_app.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
