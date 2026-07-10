@@ -21,6 +21,7 @@ import requests
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "core")))
 import kb as kb_module
+import weather as weather_module   # 天气工具（Open-Meteo，默认城市跟随场景）
 
 # ============ 行为参数（与 Windows 原型一致；要调就改这里） ============
 VAD_MODE = "semantic"
@@ -130,7 +131,8 @@ def _rms(data):
 
 WEB_SEARCH_TOOL = {
     "type": "function", "name": "web_search",
-    "description": "当用户问到实时信息、新闻、天气、最新事实、或你不确定/可能过时的内容时，调用此工具联网搜索。",
+    "description": ("当用户问到实时信息、新闻、最新事实、或你不确定/可能过时的内容时，调用此工具联网搜索。"
+                    "查天气不要用这个工具，用 get_weather。"),
     "parameters": {"type": "object",
                    "properties": {"query": {"type": "string", "description": "搜索关键词"}},
                    "required": ["query"]},
@@ -284,7 +286,9 @@ class DialogSession:
     def _instructions(self):
         lang_rule = (f"你的主语言是{self.language}，默认用{self.language}交流；"
                      f"用户用其他语言提问时跟随用户的语言。"
-                     f"你所在的城市是{self.location}：用户询问天气、新闻等本地信息但没有指明地点时，"
+                     f"用户问天气时调用 get_weather 工具，只播报工具返回的今天天气；"
+                     f"用户没有明确问明天/未来的天气，绝不要主动说未来的天气。"
+                     f"你所在的城市是{self.location}：用户询问新闻等本地信息但没有指明地点时，"
                      f"默认按{self.location}查询（联网搜索的关键词里带上{self.location}）。")
         sc = self._scene()
         if not sc:
@@ -298,6 +302,23 @@ class DialogSession:
         tools = []
         if self.search_on:
             tools.append(WEB_SEARCH_TOOL)
+        # 天气工具：免费（Open-Meteo）、不依赖 Tavily，始终挂上；默认城市跟随当前场景
+        sw = weather_module.scene_weather_cfg(self._scene(), self.location)
+        tools.append({
+            "type": "function", "name": "get_weather",
+            "description": (f"查询天气。用户问天气时必须调用此工具（不要用 web_search 查天气）。"
+                            f"用户没指明地点时 city 留空，默认查{sw['zh']}。"
+                            f"默认只报今天的天气；只有用户明确问到明天/未来的天气时才把 days 设成对应天数，"
+                            f"绝不要主动播报未来的天气。"),
+            "parameters": {"type": "object", "properties": {
+                "city": {"type": "string",
+                         "description": "地点名。用户明确说了地点才填，没说就留空（用默认城市）"},
+                "days": {"type": "integer", "minimum": 1, "maximum": 7,
+                         "description": "1=只查今天（默认）。用户问明天填2、问后天填3、问未来一周填7"},
+                "language": {"type": "string", "enum": ["zh", "ja"],
+                             "description": "用户提问用的语言：中文=zh，日语=ja"}},
+                "required": []},
+        })
         sc = self._scene()
         if sc:
             zh = kb_module.list_index_files(kb_module.scene_kb_dir(sc, "zh"))
@@ -500,6 +521,15 @@ class DialogSession:
                 self._log(f"[联网搜索] {q}")
                 result = self._tavily(q)
                 self._log(f"[搜索完成] {result[:60]}...")
+            elif name == "get_weather":
+                sw = weather_module.scene_weather_cfg(self._scene(), self.location)
+                city = args.get("city", "") or ""
+                self._log(f"[查天气] {city or sw['zh']} 天数={args.get('days', 1)}")
+                result = weather_module.get_weather(
+                    city=city, days=args.get("days", 1),
+                    language=args.get("language", "") or ("ja" if self.language == "日语" else "zh"),
+                    scene_weather=sw, proxy=self.proxy)
+                self._log(f"[天气结果] {result[:60]}...")
             elif name == "search_knowledge_base":
                 q = args.get("query", "")
                 lang = args.get("language", "") or kb_module.detect_language(q)

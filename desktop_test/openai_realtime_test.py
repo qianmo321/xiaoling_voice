@@ -62,7 +62,7 @@ VOICE = "marin"
 # === 语言配置：助手的主语言，可选 "中文" / "日语" ===
 # 影响：人设提示词里的语言说明 + 语音转写的引导提示。
 # 注意这是"主语言"不是"锁死"：用户用另一种语言提问时，识别和回答仍会跟随对方。
-LANGUAGE = "日语"
+LANGUAGE = "中文"
 
 # 语音转写模型：gpt-4o-mini-transcribe 比 whisper-1 幻觉少、短音频（喊唤醒词）识别更稳
 TRANSCRIBE_MODEL = _ROOT_CFG.get("openai", {}).get("transcribe_model", "gpt-4o-transcribe")
@@ -241,7 +241,8 @@ def requests_proxies():
 WEB_SEARCH_TOOL = {
     "type": "function",
     "name": "web_search",
-    "description": "当用户问到实时信息、新闻、天气、最新事实、或你不确定/可能过时的内容时，调用此工具联网搜索。",
+    "description": ("当用户问到实时信息、新闻、最新事实、或你不确定/可能过时的内容时，调用此工具联网搜索。"
+                    "查天气不要用这个工具，用 get_weather。"),
     "parameters": {
         "type": "object",
         "properties": {
@@ -255,6 +256,7 @@ WEB_SEARCH_TOOL = {
 # ============ 场景系统 + 本地知识库（见 scenes.json / kb.py）============
 sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "core")))
 import kb as kb_module
+import weather as weather_module   # 天气工具（Open-Meteo，默认城市跟随场景）
 
 # 加载场景配置；当前场景可被 switch_scene 工具在对话中切换
 try:
@@ -272,7 +274,9 @@ def current_scene():
 def current_instructions():
     """人设 = 当前场景的提示词 + 通用规则 + 主语言说明；没有场景就用默认 INSTRUCTIONS。"""
     lang_rule = (f"你的主语言是{LANGUAGE}，默认用{LANGUAGE}交流；用户用其他语言提问时跟随用户的语言。"
-                 f"你所在的城市是{LOCATION}：用户询问天气、新闻等本地信息但没有指明地点时，"
+                 f"用户问天气时调用 get_weather 工具，只播报工具返回的今天天气；"
+                 f"用户没有明确问明天/未来的天气，绝不要主动说未来的天气。"
+                 f"你所在的城市是{LOCATION}：用户询问新闻等本地信息但没有指明地点时，"
                  f"默认按{LOCATION}查询（联网搜索的关键词里带上{LOCATION}）。")
     sc = current_scene()
     if not sc:
@@ -305,6 +309,31 @@ def kb_search_tool():
                              "description": "用户提问用的语言：中文=zh，日语=ja"},
             },
             "required": ["query"],
+        },
+    }
+
+
+def weather_tool():
+    """天气工具定义：默认城市跟随当前场景（展厅=大连、银座=东京银座、清水寺=京都清水寺）。"""
+    sw = weather_module.scene_weather_cfg(current_scene(), LOCATION)
+    return {
+        "type": "function",
+        "name": "get_weather",
+        "description": (f"查询天气。用户问天气时必须调用此工具（不要用 web_search 查天气）。"
+                        f"用户没指明地点时 city 留空，默认查{sw['zh']}。"
+                        f"默认只报今天的天气；只有用户明确问到明天/未来的天气时才把 days 设成对应天数，"
+                        f"绝不要主动播报未来的天气。"),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string",
+                         "description": "地点名。用户明确说了地点才填，没说就留空（用默认城市）"},
+                "days": {"type": "integer", "minimum": 1, "maximum": 7,
+                         "description": "1=只查今天（默认）。用户问明天填2、问后天填3、问未来一周填7"},
+                "language": {"type": "string", "enum": ["zh", "ja"],
+                             "description": "用户提问用的语言：中文=zh，日语=ja"},
+            },
+            "required": [],
         },
     }
 
@@ -409,6 +438,15 @@ def handle_function_call(name, call_id, arguments):
             args = {}
         if name == "web_search":
             result = tavily_search(args.get("query", ""))
+        elif name == "get_weather":
+            sw = weather_module.scene_weather_cfg(current_scene(), LOCATION)
+            city = args.get("city", "") or ""
+            print(f"  [查天气] {city or sw['zh']} 天数={args.get('days', 1)}")
+            result = weather_module.get_weather(
+                city=city, days=args.get("days", 1),
+                language=args.get("language", "") or ("ja" if LANGUAGE == "日语" else "zh"),
+                scene_weather=sw, proxy=PROXY)
+            print(f"  [天气结果] {result[:80]}...")
         elif name == "search_knowledge_base":
             result = kb_search(args.get("query", ""), args.get("language", ""))
         elif name == "switch_scene":
@@ -651,10 +689,11 @@ def build_session_update():
             },
         },
     }
-    # 挂工具：联网检索 + 本地知识库（跟随场景）+ 场景切换 + 口头待机
+    # 挂工具：联网检索 + 天气 + 本地知识库（跟随场景）+ 场景切换 + 口头待机
     tools = []
     if ENABLE_SEARCH:
         tools.append(WEB_SEARCH_TOOL)
+    tools.append(weather_tool())   # 天气免费（Open-Meteo），不依赖 Tavily，始终可用
     if ENABLE_KB:
         tools.append(kb_search_tool())
     if _SCENES_CFG["scenes"]:
