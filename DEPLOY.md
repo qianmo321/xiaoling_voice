@@ -1,7 +1,7 @@
 # 小灵语音助手 · 部署与维护文档
 
 > 适用：xiaoling_voice 网页版语音服务（浏览器语音对话测试台）
-> 最后更新：2026-07（首次服务器部署完成后整理）
+> 最后更新：2026-07-13（新增天气工具、断线自动重连、转写模型升级后）
 
 ---
 
@@ -17,7 +17,7 @@ Ubuntu 服务器 ubuntu-ai（192.168.2.80）
    每个浏览器连接 = 一个独立 DialogSession（场景/唤醒/知识库/打断，互不影响）
         │  经本机代理 127.0.0.1:10808（服务器上的 v2rayN）
         ▼
-OpenAI Realtime API（gpt-realtime）＋ Tavily 联网检索
+OpenAI Realtime API（gpt-realtime）＋ Tavily 联网检索 ＋ Open-Meteo 天气（免费无key）
 ```
 
 ## 2. 当前部署信息速查
@@ -126,7 +126,7 @@ Windows 改代码/配置 → 本机测试（python web_voice\server.py + localho
     "api_key": "sk-...",             // OpenAI key（必填）
     "model": "gpt-realtime",         // 端到端语音模型
     "voice": "marin",                // 音色
-    "transcribe_model": "gpt-4o-mini-transcribe"   // 转写模型（比whisper-1幻觉少）
+    "transcribe_model": "gpt-4o-transcribe"   // 转写模型（识别最准；config 不入 git，改服务器时记得手动同步这项）
   },
   "search": { "enable": true, "tavily_api_key": "tvly-..." },  // 联网检索
   "network": { "proxy": "127.0.0.1:10808" },  // 出网代理；能直连 OpenAI 就填 ""
@@ -147,7 +147,7 @@ Windows 改代码/配置 → 本机测试（python web_voice\server.py + localho
 
 ## 7. 场景与知识库维护
 
-- **场景定义**：`core/scenes.json` —— default_scene、common_rules、每场景的 name/aliases/instructions/kb_zh/kb_ja。加新场景照抄一段 + 建知识库目录。
+- **场景定义**：`core/scenes.json` —— default_scene、common_rules、每场景的 name/aliases/instructions/kb_zh/kb_ja/weather（默认天气城市：中/日文名+经纬度）。加新场景照抄一段 + 建知识库目录。
 - **知识库目录**：`知识库/<场景>/<zh|ja>/*.md`。加/改文档后在 Windows 跑：
   ```
   cd core && python kb.py build     # 只处理有变化的文件
@@ -183,6 +183,8 @@ curl -x http://127.0.0.1:10808 -m 10 https://api.openai.com/v1/models   # 测代
 | Q10 | 它把没人说的话当输入（"谢谢观看""您好请问有什么可以帮您"等） | 转写幻觉。已有拦截词表 `_HALLUCINATION_PHRASES`（session.py），出现新花样就往里加整句 |
 | Q11 | 待机播报跑题/复读上一话题 | 带外响应必须 `conversation:"none"` **且** `"input": []`（已修，新增播报类功能时注意） |
 | Q12 | 服务器重启后连不上 OpenAI | **v2rayN 是桌面程序不会自启**（已知风险，见第10节） |
+| Q13 | 日志见 `连接关闭 1011 keepalive ping timeout` | 代理空闲链路被掐/网络抖动，OpenAI 心跳超时断开。**已做自动重连**（2秒起、失败翻倍最多30秒）+ 每15秒主动心跳保活，无需处理；注意重连后 OpenAI 侧对话记忆清零（人设/场景/唤醒状态不受影响） |
+| Q14 | 没人说话却识别出"你好小灵""请问需要什么帮助"等 | 转写模型把杂音"脑补"成话（幻觉）。已三层防护：转写引导词只声明语言（**别在里面写名字/领域词**，会变诱饵）、幻觉整句表+正则拦截、被忽略的话从服务端历史删除 |
 
 ## 10. 已知风险与待办
 
