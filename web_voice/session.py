@@ -554,15 +554,17 @@ class DialogSession:
                     name_cn = self._scene().get("name", target)
                     self._log(f"[场景切换] → {name_cn}")
                     self.send_json({"type": "scene", "value": name_cn})
-                    result = f"已切换到『{name_cn}』场景。请用一句话向用户确认（用户用日语就用日语说）。"
+                    result = (f"已切换到『{name_cn}』场景。请用一句话向用户确认（用户用日语就用日语说）。"
+                              f"开头不要用『好的』等应答词——你在切换前通常已经应答过一句了。")
                 else:
                     result = f"没有场景 {target}"
             elif name == "enter_standby":
                 self._awake = False
                 self._status("STANDBY")
                 self._log("[待机] 口头指令")
-                result = ("已进入待机状态。请用一句话向用户确认并告别"
-                          "（例如：好的，我先休息啦，需要我时喊『你好小灵』就行）。之后保持安静。")
+                result = ("已进入待机状态。请用一句话向用户告别，开头不要用『好的』等应答词"
+                          "（你刚才已经应答过一句了）。例如：那我先休息啦，需要我时喊『你好小灵』就行。"
+                          "之后保持安静。")
             else:
                 result = "未知工具"
             self._send({"type": "conversation.item.create", "item": {
